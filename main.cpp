@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include <vector>
 #include <array>
 #include <random>
@@ -32,6 +33,11 @@ typedef struct {
 } AgentData;
 
 typedef struct {
+    int agtCount, goalCount, rateCount;
+    bool useDifferentTotal;
+} imgData;
+
+typedef struct {
     int x, y;
 } Pos;
 
@@ -43,46 +49,16 @@ class Agent {
         vector<vector<array<double, GRID_DATA_COUNT>>> data;
     public:
         array<double, GRID_DATA_COUNT> getGrid(Pos pos);
-        void initializeGrid();
         void learn(int count = 1);
         int move(Pos &pos, bool rate = false, int lastMove = -1);
         void reward(const vector<Pos> &route);
         int rate(int count);
-        void writeImg(bool useDifferentTotal = false);
+        void writeImg(imgData img);
         explicit Agent(AgentData agent, GridData grid, int seed);
 };
 
 array<double, GRID_DATA_COUNT> Agent::getGrid(Pos pos) {
     return this->data[pos.x][pos.y];
-}
-
-void Agent::initializeGrid() {
-    REP(x, this->grid.n) {
-        REP(y, this->grid.n) {
-            REP(i, 4)
-                this->data[x][y][i] = this->agent.tFactor;
-        }
-    }
-    int x = 0, y = 0;
-    REP(i, this->grid.n) {
-        this->data[x][y][DOWN] = 0;
-        x++;
-    }
-    x--;
-    REP(i, this->grid.n) {
-        this->data[x][y][RIGHT] = 0;
-        y++;
-    }
-    y--;
-    REP(i, this->grid.n) {
-        this->data[x][y][UP] = 0;
-        x--;
-    }
-    x++;
-    REP(i, this->grid.n) {
-        this->data[x][y][LEFT] = 0;
-        y--;
-    }
 }
 
 void Agent::learn(int count) {
@@ -186,7 +162,7 @@ int Agent::rate(int count) {
     return goalCount;
 }
 
-void Agent::writeImg(bool useDifferentTotal) {
+void Agent::writeImg(imgData img) {
     int rows = (IMG_GRID_SQUARE + 1) * this->grid.n + 1;
     int cols = (IMG_GRID_SQUARE + 1) * this->grid.n + 1;
     cv::Mat image(cv::Size(cols, rows), CV_8UC3, cv::Scalar(255,255,255));
@@ -198,7 +174,7 @@ void Agent::writeImg(bool useDifferentTotal) {
         cv::line(image, cv::Point(0, lineRow), cv::Point(cols, lineRow), cv::Scalar(0,0,0), 1, 0);
     }
     double total = 0;
-    if (useDifferentTotal) {
+    if (img.useDifferentTotal) {
         double maxArrow = 0;
         double totalArrow = 0;
         REP(x, this->grid.n)
@@ -214,7 +190,7 @@ void Agent::writeImg(bool useDifferentTotal) {
         REP(y, this->grid.n) {
             int baseCol = (IMG_GRID_SQUARE + LINE) * x + IMG_GRID_MIN_SQUARE + LINE;
             int baseRow = (IMG_GRID_SQUARE + LINE) * (this->grid.n - y - 1) + IMG_GRID_MIN_SQUARE + LINE;
-            if (!useDifferentTotal){
+            if (!img.useDifferentTotal){
                 total = 0;
                 REP(i, 4)
                     total += this->data[x][y][i];
@@ -285,7 +261,11 @@ void Agent::writeImg(bool useDifferentTotal) {
             }
         }
     }
-    cv::imwrite("test.jpg", image);
+    cv::imwrite(to_string(this->grid.n) + "n "
+        + to_string(this->agent.t) + "t "
+        + to_string(this->agent.p) + "p "
+        + to_string(img.goalCount) + "g" + to_string(img.rateCount)
+        + " " + to_string(img.agtCount) + ".jpg", image);
 }
 
 Agent::Agent(AgentData agent, GridData grid, int seed) : agent(agent), grid(grid), rd(seed) {
@@ -298,6 +278,32 @@ Agent::Agent(AgentData agent, GridData grid, int seed) : agent(agent), grid(grid
         this->data.pb(row);
         row.clear();
     }
+    REP(x, this->grid.n) {
+        REP(y, this->grid.n) {
+            REP(i, 4)
+                this->data[x][y][i] = this->agent.tFactor;
+        }
+    }
+    int x = 0, y = 0;
+    REP(i, this->grid.n) {
+        this->data[x][y][DOWN] = 0;
+        x++;
+    }
+    x--;
+    REP(i, this->grid.n) {
+        this->data[x][y][RIGHT] = 0;
+        y++;
+    }
+    y--;
+    REP(i, this->grid.n) {
+        this->data[x][y][UP] = 0;
+        x--;
+    }
+    x++;
+    REP(i, this->grid.n) {
+        this->data[x][y][LEFT] = 0;
+        y--;
+    }
 }
 
 int main(int argc, char** argv) {
@@ -305,8 +311,9 @@ int main(int argc, char** argv) {
     int rand_res{0};
     AgentData agent;
     GridData grid;
+    imgData img;
     int penalty, advancedMove, useDifferentTotal, lrnCount, rateCount, agtCount;
-    int goalCount = 0;
+    int totalGoalCount = 0;
     cout << "試行数：";
     cin >> agtCount;
     cout << "グリッドワールドの一辺の長さn：";
@@ -321,6 +328,7 @@ int main(int argc, char** argv) {
     cin >> grid.gy;
     cout << "最大ステップ数t：";
     cin >> agent.t;
+    //計算時の係数　割り切れない数を減らす
     agent.tFactor = 87.29721;
     cout << "報酬係数p：" << endl;
     cin >> agent.p;
@@ -337,16 +345,21 @@ int main(int argc, char** argv) {
 
     agent.isPenaltyEnabled = (penalty == 1);
     agent.advancedMove = (advancedMove == 1);
+    img.useDifferentTotal = (useDifferentTotal == 1);
+    img.rateCount = rateCount;
     CryptAcquireContext(&hprov, nullptr, nullptr, PROV_RSA_FULL, 0);
 
     REP(i, agtCount){
+        int goalCount;
         CryptGenRandom(hprov, sizeof(rand_res), reinterpret_cast<BYTE*>(&rand_res));
         Agent A(agent, grid, rand_res);
-        A.initializeGrid();
         A.learn(lrnCount);
-        goalCount += A.rate(rateCount);
-        A.writeImg((useDifferentTotal == 1));
+        goalCount = A.rate(rateCount);
+        totalGoalCount += goalCount;
+        img.agtCount = i;
+        img.goalCount = goalCount;
+        A.writeImg(img);
     }
-    cout << goalCount / agtCount << endl;
+    cout << totalGoalCount / agtCount << endl;
     return 0;
 }
